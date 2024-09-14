@@ -1,5 +1,11 @@
 {
     "location_code": "zone5",
     "map_code" : "return_locations" ,
-    "occupy_code" : 12
+    "excute_code" : "transport_empty_cart"
+}
+
+{
+    "location_code": "zone9",
+    "map_code" : "return_locations" ,
+    "excute_code" : "transport_goods"
 }

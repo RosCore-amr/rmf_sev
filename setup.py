@@ -21,6 +21,7 @@ setup(
         "console_scripts": [
             "transfer_if = rmf_sev.transfer_infor:main",
             "controlsystem = rmf_sev.control_system:main",
+            "mission_req = rmf_sev.mission_req:main",
         ],
     },
 )
