@@ -4,8 +4,9 @@
 import jwt
 import uvicorn
 import requests
-
-from fastapi import FastAPI
+import yaml
+import json
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import threading
 
@@ -15,7 +16,13 @@ from rclpy.node import Node
 
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from robot_interfaces.srv import CreatMission, SearchStock, ExcuteMission, CommandApi
+from robot_interfaces.srv import (
+    CreatMission,
+    SearchStock,
+    ExcuteMission,
+    CommandApi,
+    Collision,
+)
 from robot_interfaces.msg import MissionTransport, MissionCurrent
 
 
@@ -41,7 +48,7 @@ class MissionRequestClient(Node):
     def __init__(self):
         super().__init__("mission_process_client_async")
         self.cb = None
-        self.get_logger().info("Swagger run http://127.0.0.1:2000/docs#/")
+        self.get_logger().info("Swagger run http://127.0.0.1:2100/docs#/")
 
         self.timer_cb = MutuallyExclusiveCallbackGroup()
 
@@ -53,6 +60,8 @@ class MissionRequestClient(Node):
         self.cli_excute_mission = self.create_client(
             ExcuteMission, "processing_excute_mission"
         )
+
+        self.cli_collision = self.create_client(Collision, "collision_process")
 
         self._stock_req = SearchStock.Request()
         self._mission_creat_req = CreatMission.Request()
@@ -126,11 +135,22 @@ class MissionRequestClient(Node):
             return process_mission
 
         @app.post("/robot_update_location")
-        async def robot_update_location(robot_comfirm: dict):
+        async def robot_update_location(robot_comfirm: dict, request: Request):
             # process_mission = self.mission_runing_process(robot_comfirm)
             # self.get_logger().info('robot_update: "%s"' % process_mission)
-
+            client_host = request.client.host
+            # process_mission = self.mission_runing_process(robot_comfirm)
+            self.get_logger().info('client_host: "%s"' % client_host)
             return robot_comfirm
+
+        @app.post("/collision")
+        async def collision(robot_comfirm: dict):
+            # client_host = request.client.host
+            # # process_mission = self.mission_runing_process(robot_comfirm)
+            sever_response = self.collision_client(robot_comfirm)
+            self.get_logger().info('resutl: "%s"' % sever_response.result)
+
+            return eval(sever_response.result)
 
     def mission_creat_transport_goods(self, end_location):
 
@@ -184,6 +204,22 @@ class MissionRequestClient(Node):
             mission_carry_empty_cart.mission_code,
         )
         return mission_carry_empty_cart.mission_code
+
+    def collision_client(self, request_body):
+        req = Collision.Request()
+        while not self.cli_collision.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info("service not available, waiting again...")
+            return False
+
+        # req.url = _url
+        req.robot_code = request_body["robot_code"]
+        req.position_collision = request_body["position_collision"]
+        future = self.cli_collision.call_async(req)
+        while rclpy.ok():
+            if future.done() and future.result():
+                return future.result()
+
+        return None
 
     def processing_update_client(self, _url, request_body):
         req = CommandApi.Request()
@@ -369,7 +405,7 @@ def main(args=None):
     # executor.spin()
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
-    uvicorn.run(app, port=2000, log_level="warning")
+    uvicorn.run(app, port=2100, log_level="warning")
     minimal_client.destroy_node()
 
     rclpy.shutdown()
