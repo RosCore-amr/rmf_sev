@@ -2,7 +2,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from robot_interfaces.msg import MissionTransport
-from robot_interfaces.srv import SearchStock, CommandApi
+from robot_interfaces.srv import CommandApi
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 
 from example_interfaces.srv import AddTwoInts

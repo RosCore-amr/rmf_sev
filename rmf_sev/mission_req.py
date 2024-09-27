@@ -22,6 +22,7 @@ from robot_interfaces.srv import (
     ExcuteMission,
     CommandApi,
     Collision,
+    GetInformation,
 )
 from robot_interfaces.msg import MissionTransport, MissionCurrent
 
@@ -48,11 +49,10 @@ class MissionRequestClient(Node):
     def __init__(self):
         super().__init__("mission_process_client_async")
         self.cb = None
-        self.get_logger().info("Swagger run http://127.0.0.1:2100/docs#/")
 
         self.timer_cb = MutuallyExclusiveCallbackGroup()
 
-        self.cli_empty_cart = self.create_client(SearchStock, "search_empty_cart")
+        self.cli_empty_cart = self.create_client(GetInformation, "search_empty_cart")
         self.cli_new_mission = self.create_client(CreatMission, "creation_mission")
         self.cli_data_update_status = self.create_client(
             CommandApi, "update_data_database"
@@ -63,7 +63,7 @@ class MissionRequestClient(Node):
 
         self.cli_collision = self.create_client(Collision, "collision_process")
 
-        self._stock_req = SearchStock.Request()
+        self._stock_req = GetInformation.Request()
         self._mission_creat_req = CreatMission.Request()
         self._excute_mission_req = ExcuteMission.Request()
         self.timer = self.create_timer(
@@ -93,7 +93,6 @@ class MissionRequestClient(Node):
             # 25 take cart empty lay
             # 3 co xe, co hang
             # 5 vi tri trong
-            # empty_location = self.find_location_infor_client("find_cart_empty/6")
             # self.get_logger().info(str(empty_location))
             if location_occupy["excute_code"] == "transport_empty_cart":
                 mission_empty_cart = self.mission_creat_transport_empty_cart(
@@ -154,20 +153,33 @@ class MissionRequestClient(Node):
 
     def mission_creat_transport_goods(self, end_location):
 
-        location_goods_pickup = self.find_location_infor_client(
-            "find_products/" + str(end_location["location_code"])
+        location_return = self.find_location_infor_client(
+            str("query_location/" + "return_locations/" + end_location["name"])
         )
-        if not location_goods_pickup.code:
-            return {"code": " dont have goods to take "}
+        _location_return = eval(location_return.msg_response)
+        if not _location_return:
+            return {"mission_code": 0, "msg": "location not exist"}
+
+        location_goods = self.find_location_infor_client(
+            "find_products/" + str(end_location["name"])
+        )
+        _location_have_goods = eval(location_goods.msg_response)
+        if not _location_have_goods:
+            return {"mission_code": 0, "msg": "dont have goods to take"}
+
+        # mx = self.pre_location()
+        # self.get_logger().info('location_return : "%s"' % location_return)
 
         body_request = {
             "entry_location": {
-                "location_code": location_goods_pickup.name,
-                "map_code": location_goods_pickup.map_code,
+                "location_code": _location_have_goods["name"],
+                "map_code": _location_have_goods["map_code"],
+                "point": _location_have_goods["point"],
             },
             "end_location": {
-                "location_code": end_location["location_code"],
-                "map_code": end_location["map_code"],
+                "location_code": _location_return["name"],
+                "map_code": _location_return["map_code"],
+                "point": _location_return["point"],
             },
         }
 
@@ -177,33 +189,51 @@ class MissionRequestClient(Node):
             end_location["excute_code"],
             mission_carry_goods.mission_code,
         )
-        return mission_carry_goods.mission_code
+        # self.get_logger().info('body_request: "%s"' % body_request)
+
+        # return True
+        return {"mission_code": mission_carry_goods.mission_code, "msg": 1}
 
     def mission_creat_transport_empty_cart(self, entry_location):
-        response_available_location = self.find_location_infor_client(
+        empty_cart_location = self.find_location_infor_client(
+            str("query_location/" + "return_locations/" + entry_location["name"])
+        )
+        _empty_cart_location = eval(empty_cart_location.msg_response)
+        if not _empty_cart_location:
+            return {"mission_code": 0, "msg": "Call error"}
+
+        available_location = self.find_location_infor_client(
             "available_location/pickup_locations"
         )
-        if not response_available_location.code:
-            return {"code": "not have available location"}
+        _available_location = eval(available_location.msg_response)
+        if not _available_location:
+            return {"mission_code": 0, "msg": "not have available location"}
+
+        # _available_location = eval(available_location.msg_response)[0]
 
         body_request = {
             "entry_location": {
-                "location_code": entry_location["location_code"],
-                "map_code": entry_location["map_code"],
+                "location_code": _empty_cart_location["name"],
+                "map_code": _empty_cart_location["map_code"],
+                "point": _empty_cart_location["point"],
             },
             "end_location": {
-                "location_code": response_available_location.name,
-                "map_code": response_available_location.map_code,
+                "location_code": _available_location["name"],
+                "map_code": _available_location["map_code"],
+                "point": _available_location["point"],
             },
         }
 
         mission_carry_empty_cart = self.creation_mission_client(body_request)
         self.process_excute_mission_client(
             "missions_excute_update",
-            entry_location["excute_code"],
+            "transport_empty_cart",
             mission_carry_empty_cart.mission_code,
         )
         return mission_carry_empty_cart.mission_code
+        self.get_logger().info('body_request: "%s"' % body_request)
+
+        return True
 
     def collision_client(self, request_body):
         req = Collision.Request()
@@ -254,21 +284,22 @@ class MissionRequestClient(Node):
             self.get_logger().info("service not available, waiting again...")
             return False
 
-        self._mission_creat_req.entry_location.location_code = body_request[
-            "entry_location"
-        ]["location_code"]
+        # self._mission_creat_req.entry_location.location_code = body_request[
+        #     "entry_location"
+        # ]["location_code"]
 
-        self._mission_creat_req.entry_location.map_code = body_request[
-            "entry_location"
-        ]["map_code"]
+        # self._mission_creat_req.entry_location.map_code = body_request[
+        #     "entry_location"
+        # ]["map_code"]
 
-        self._mission_creat_req.end_location.location_code = body_request[
-            "end_location"
-        ]["location_code"]
+        # self._mission_creat_req.end_location.location_code = body_request[
+        #     "end_location"
+        # ]["location_code"]
 
-        self._mission_creat_req.end_location.map_code = body_request["end_location"][
-            "map_code"
-        ]
+        # self._mission_creat_req.end_location.map_code = body_request["end_location"][
+        #     "map_code"
+        # ]
+        self._mission_creat_req.mission_request = str(body_request)
         future = self.cli_new_mission.call_async(self._mission_creat_req)
         while rclpy.ok():
             if future.done() and future.result():
@@ -298,35 +329,21 @@ class MissionRequestClient(Node):
             new_mission_code = self.creat_mission_take_empty_cart()
             self.get_logger().info(str(new_mission_code))
 
-        # self.get_logger().info("loop run")
+            # self.get_logger().info("loop run")
 
     def creat_mission_take_empty_cart(self):
-        response_empty_cart = self.find_location_infor_client("find_cart_empty/6")
-        if not response_empty_cart.code:
-            return {"code": "not have empty cart"}
-        response_available_location = self.find_location_infor_client(
-            "available_location/pickup_locations"
-        )
-        if not response_available_location.code:
-            return {"code": "not have available location"}
 
-        body_request = {
-            "entry_location": {
-                "location_code": response_empty_cart.name,
-                "map_code": response_empty_cart.map_code,
-            },
-            "end_location": {
-                "location_code": response_available_location.name,
-                "map_code": response_available_location.map_code,
-            },
-        }
-        new_mission_code = self.creation_mission_client(body_request)
-        self.process_excute_mission_client(
-            "missions_excute_update",
-            "transport_empty_cart",
-            new_mission_code.mission_code,
+        response_empty_cart = self.find_location_infor_client("find_cart_empty/6")
+
+        _response_empty_cart = eval(response_empty_cart.msg_response)
+        if not _response_empty_cart:
+            return {"mission_code": 0, "msg": "dont have empty cart"}
+
+        # self.get_logger().info("call missiin")
+        mission_transport_empty_cart = self.mission_creat_transport_empty_cart(
+            _response_empty_cart
         )
-        return new_mission_code.mission_code
+        return mission_transport_empty_cart
 
     def mission_runing_process(self, request):
         url_name = "remove_pending_task"
@@ -385,7 +402,7 @@ class MissionRequestClient(Node):
     def cart_empty_callback(self, msg):
         # self.get_logger().info("hello on here")
 
-        if len(msg.mission_excute) < 6:
+        if len(msg.mission_excute) < 2:
             self.query_mission_take_cart_empty = True
         else:
             self.query_mission_take_cart_empty = False
@@ -405,7 +422,9 @@ def main(args=None):
     # executor.spin()
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
-    uvicorn.run(app, port=2100, log_level="warning")
+    minimal_client.get_logger().info("Swagger run http://192.168.68.110:2100/docs#/")
+
+    uvicorn.run(app, host="192.168.68.110", port=2100, log_level="warning")
     minimal_client.destroy_node()
 
     rclpy.shutdown()

@@ -1,0 +1,9 @@
+{
+    "name": "zone5",
+    "excute_code" : "transport_empty_cart"
+}
+
+{
+    "name": "zone9",
+    "excute_code" : "transport_goods"
+}
