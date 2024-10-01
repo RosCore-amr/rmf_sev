@@ -1,8 +1,6 @@
 {
-    "robot_code": "robot_1",
-    "battery": 100,
-    "mission": "hello kitty",
-    "status": 0,
-    "type": "amr"
+
+    "collision": [],
+    "robot_status": "run"
   }
   
