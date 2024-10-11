@@ -24,6 +24,7 @@ from robot_interfaces.srv import (
     CommandApi,
     Collision,
     GetInformation,
+    CommonRequest,
 )
 from robot_interfaces.msg import MissionTransport, MissionCurrent
 from fastapi.middleware.cors import CORSMiddleware
@@ -79,6 +80,10 @@ class MissionRequestClient(Node):
         self.timer_cb = MutuallyExclusiveCallbackGroup()
 
         self.cli_get2system = self.create_client(GetInformation, "get_from_system")
+        self.cli_elevator_control = self.create_client(
+            CommonRequest, "processing_elevator"
+        )
+
         self.cli_new_mission = self.create_client(CreatMission, "creation_mission")
         self.cli_data_update_patch = self.create_client(
             CommandApi, "update_data_database"
@@ -105,11 +110,18 @@ class MissionRequestClient(Node):
         self.mission_take_cart_empty = self.create_subscription(
             MissionTransport, "transport_empty_cart", self.cart_empty_callback, 10
         )
+        self.robot_work_status = self.create_subscription(
+            String, "robot_work_ability", self.robot_ability_work_callback, 10
+        )
+        self.subscription_mission_current
+        self.mission_take_cart_empty
+        self.robot_work_status
 
         self.query_mission_take_cart_empty = False
         self.mission_transport_goods_current = None
         self.mission_transport_empty_cart_current = None
         self._mission_current_ = {}
+        self.dict_robot_work = {}
 
         @app.post("/occupy_location")
         async def occupy_locations(location_occupy: OccupyLocation):
@@ -204,6 +216,25 @@ class MissionRequestClient(Node):
             self.get_logger().info('resutl: "%s"' % sever_response.result)
 
             return eval(sever_response.result)
+
+        @app.post("/elevator_request")
+        async def elevator_request(robot_request: dict, request: Request):
+            client_host = request.client.host
+            _robot_name = {
+                "robot_code": self.find_robot_name(client_host, "robot_code")
+            }
+            robot_request.update(_robot_name)
+            # # process_mission = self.mission_runing_process(robot_comfirm)
+            _elevator_response = self.elevator_control_client(robot_request)
+            if not _elevator_response:
+                return "sever is not working "
+            result = eval(_elevator_response.msg_response)
+            # self.get_logger().info('robot_request: "%s"' % robot_request)
+            # return True
+            return result
+
+    # def elevator_processing(self, data):
+    #     return True
 
     def system_update_from_robot(self, _robot_progress):
         _url_update_mission_history = "update_missions_histories"
@@ -373,6 +404,21 @@ class MissionRequestClient(Node):
 
         return None
 
+    def elevator_control_client(self, _request):
+        req = CommonRequest.Request()
+
+        while not self.cli_elevator_control.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info("service not available, waiting again...")
+            return False
+
+        req.msg_request = str(_request)
+        future = self.cli_elevator_control.call_async(req)
+        while rclpy.ok():
+            if future.done() and future.result():
+                return future.result()
+
+        return None
+
     def find_bulletin_system_client(self, _url):
         req = GetInformation.Request()
 
@@ -432,13 +478,11 @@ class MissionRequestClient(Node):
 
         return None
 
-    def main_loop(self) -> None:
-
-        if self.query_mission_take_cart_empty:
-            new_mission_code = self.creat_mission_take_empty_cart()
-            # self.get_logger().info(str(new_mission_code))
-
-            # self.get_logger().info("loop run")
+    def find_robot_name(self, ip_machine, _type_name):
+        # self.dict_robot_work
+        if ip_machine in self.dict_robot_work.keys():
+            return self.dict_robot_work[ip_machine][_type_name]
+        return ip_machine
 
     def creat_mission_take_empty_cart(self):
 
@@ -463,6 +507,12 @@ class MissionRequestClient(Node):
 
         self._mission_current_ = eval(msg.data)
 
+    def robot_ability_work_callback(self, msg):
+        self.dict_robot_work = eval(msg.data)
+        # self.get_logger().info(
+        #     'dict_robot_work: "%s"' % self.msg2json(self.dict_robot_work)
+        # )
+
     def cart_empty_callback(self, msg):
         # self.get_logger().info("hello on here")
 
@@ -473,6 +523,20 @@ class MissionRequestClient(Node):
         # self.get_logger().info(
         #     'query_mission_take_cart_empty: "%d"' % self.query_mission_take_cart_empty
         # )
+
+    def msg2json(self, msg):
+        # y = json.load(str(msg))
+        return json.dumps(msg, indent=4)
+
+    def main_loop(self) -> None:
+        # xx = self.find_robot_name("192.168.6.222")
+        # self.get_logger().info(xx)
+
+        if self.query_mission_take_cart_empty:
+            new_mission_code = self.creat_mission_take_empty_cart()
+            # self.get_logger().info(str(new_mission_code))
+
+            # self.get_logger().info("loop run")
 
 
 def main(args=None):
